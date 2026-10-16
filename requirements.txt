@@ -1,0 +1,6 @@
+torch==2.11.0      # the one we run: 2.11.0+cu128 (Blackwell sm_120)
+triton==3.6.0
+transformers==5.9.0   # NemotronH skeleton (latent MoE), tokenizer/chat template, CPU reference
+kernels>=0.12,<0.13   # mamba-ssm / causal-conv1d / flash-attn2 from HF kernels-community (0.17 breaks transformers 5.9)
+safetensors
+numpy
