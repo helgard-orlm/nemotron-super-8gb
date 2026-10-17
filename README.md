@@ -81,10 +81,23 @@ Greedy decode, chat prompts of 31–40 tokens, warm cache:
 | + pipelined prompt + pairs kernel | 6.5 | 3.2–3.8 s |
 | **+ ReLU² zero skip (current)** | **7.3–7.6** | **4.7–5.0 s** (server, incl. template) |
 
-Where the decode time goes (before the zero skip; measured while another job loaded the CPU, so absolute values
-are approximate): ~180 ms/token total, **~100 ms host→GPU copies**, ~3 ms waiting for the disk (the readers hide
-it), ~75 ms compute + Python. So the PCIe bus, not the NVMe, is the bottleneck on this machine — which is why the
-zero skip helped and a bigger RAM cache would help less than one would expect.
+Where the decode time goes (current version, ~134–137 ms/token, RAM cache 14 GiB; measured with nsys and host
+timers, 2026-10-17):
+
+- **GPU side** (nsys, union of kernel and copy intervals): busy ~92 ms, idle ~54 ms. Work: host→GPU copies of the
+  `up` halves ~49 ms (1.36 GB/token at 27.7 GB/s), `_down_groups` reading `down` from pinned RAM ~17 ms, dense
+  FP8/NVFP4 linears ~19 ms, everything else ~7 ms.
+- **Host side** (what the CPU waits for per token): **disk reads ~50–55 ms** (140–175 experts/token miss the
+  RAM cache, 38 of 40 MoE layers wait on at least one), cache bookkeeping in Python ~17 ms, waiting for the
+  router result ~11 ms.
+
+So on this machine the **NVMe misses are the largest single wait**, then the PCIe copies. A bigger RAM cache helps:
+an LRU replay of a recorded routing trace matched the live miss counts within ±0.4/token, and a live run with a
+20 GiB cache cut misses 156 → 102/token and decode time 136.9 → 121.5 ms (7.3 → 8.2 tok/s) — at the cost of
+~6.7 GB of RAM left to the rest of the system on a 32 GB box.
+
+> Correction: an earlier version of this README said the disk wait was ~3 ms and the bus was the bottleneck.
+> That number came from a run with the GPU copies switched off, which hid the disk wait. It was wrong.
 
 Load time 7–13 s; VRAM 6.6 GiB (peak ~7.2 GiB); RAM: 14 GiB pinned cache + 1 GiB embeddings.
 
