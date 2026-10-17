@@ -1,0 +1,56 @@
+[
+ {
+  "q": "What is written in the picture?",
+  "mode": "image",
+  "prompt_tok": 409,
+  "vision_s": 3.2,
+  "prefill_s": 17.6,
+  "tok_s": 4.9,
+  "answer": "BLUE CRANE 47"
+ },
+ {
+  "q": "What is written in the picture?",
+  "mode": "zeros",
+  "prompt_tok": 409,
+  "vision_s": 3.2,
+  "prefill_s": 10.7,
+  "tok_s": 6.84,
+  "answer": "The image contains the following text:\n\n- **Main text (large, bold, black):** \"What is written in the picture?\"\n- **Smaller text (top right, black):** \"What is written in the picture?\""
+ },
+ {
+  "q": "List every shape in the picture with its color.",
+  "mode": "image",
+  "prompt_tok": 412,
+  "vision_s": 3.2,
+  "prefill_s": 17.0,
+  "tok_s": 7.05,
+  "answer": "The image contains three shapes:\n\n1. A red circle on the left\n2. A green square in the middle\n3. A blue triangle on the right\n\nThese shapes are arranged horizontally in the center of the image."
+ },
+ {
+  "q": "List every shape in the picture with its color.",
+  "mode": "zeros",
+  "prompt_tok": 412,
+  "vision_s": 3.2,
+  "prefill_s": 10.9,
+  "tok_s": 8.1,
+  "answer": "Based on the image provided, here is a list of every shape and its color:\n\n*   **Circle:** Red\n*   **Circle:** Blue\n*   **Circle:** Green\n*   **Circle:** Yellow\n*   **Circle:** Purple\n*   **Circle:** Orange\n*"
+ },
+ {
+  "q": "Опиши картинку одним предложением по-русски.",
+  "mode": "image",
+  "prompt_tok": 416,
+  "vision_s": 3.2,
+  "prefill_s": 17.1,
+  "tok_s": 7.24,
+  "answer": "На картинке изображены красный круг, зеленый квадрат и синий треугольник, а также текст \"BLUE CRANE 47\"."
+ },
+ {
+  "q": "Опиши картинку одним предложением по-русски.",
+  "mode": "zeros",
+  "prompt_tok": 416,
+  "vision_s": 3.2,
+  "prefill_s": 11.1,
+  "tok_s": 7.72,
+  "answer": "На изображении представлена карта с изображением континентов и океанов, на которой отмечены различные точки и линии, вероятно, указывающие на географические объекты или маршруты."
+ }
+]

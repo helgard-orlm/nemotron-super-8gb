@@ -9,7 +9,7 @@ Output is checked against the Hugging Face reference implementation (`transforme
 fp32 on the CPU, weights taken from the original checkpoint and dequantized with transformers' own FP4 code) —
 see [Correctness](#correctness).
 
-Batch size 1, text only (the vision tower and the MTP head are not wired in). Code comments are in Russian.
+Batch size 1. Text and images (see [Images](#images)); video and the MTP head are not wired in. Code comments are in Russian.
 
 Same family of engines: [Qwen3.8-Flash-Next on 8 GB](https://github.com/helgard-orlm/qwen-flash-next-8gb).
 
@@ -101,6 +101,39 @@ an LRU replay of a recorded routing trace matched the live miss counts within ±
 
 Load time 7–13 s; VRAM 6.6 GiB (peak ~7.2 GiB); RAM: 14 GiB pinned cache + 1 GiB embeddings.
 
+## Images
+
+The server accepts OpenAI-style `image_url` parts (`data:` URLs or http(s), ≤ 20 MB), so attaching a photo in Open WebUI
+just works.
+
+- **Vision tower** (`vision/vis.py`): C-RADIO + projector, built from NVIDIA's own code (`vision/nvl/`, vendored
+  unmodified, Apache-2.0) without `trust_remote_code`; weights (BF16) are read from the original checkpoint's first
+  shard, key renames as in transformers' `register_radio_conversion_mapping`. The processor is assembled by hand from
+  `processor_config.json` + the engine's tokenizer + `chat_template.jinja`.
+- **The tower doesn't fit next to the engine** (6.6 GiB resident on an 8 GB card), so its weights stay in pinned RAM
+  and are streamed to the GPU **module by module** via forward hooks; the two big projector linears (200/168 MB) are
+  applied in ~50 MB slices. Before the tower runs, the live dialog cache is snapshotted to RAM and the prompt-path
+  scratch buffers are freed. Tower time per image: **0.4–1.6 s** on the GPU vs 10–31 s on the CPU
+  (`NS_VIS_DEVICE=cpu` falls back to the CPU).
+- **Injection:** image vectors replace the `<image>` (id 18) rows in the CPU embedding lookup, in order. In the
+  prompt/snapshot cache key every `<image>` position carries the image's sha256 fingerprint — otherwise two different
+  images of the same size would produce the same token ids and hit the same cache entry.
+- **Resolution:** the normal model ids cap an image at 4096 patches (1024 tokens); `nemotron-3.5-super-120b-doc` /
+  `-doc-think` (or `image_url.detail: "high"`) use NVIDIA's limit of 13312 patches. Prompts with images are processed
+  in 512-token chunks; on OOM the prompt is redone from the last whole snapshot with halved chunks (down to 128).
+
+Measured (`tests/vision/`):
+
+| test | result |
+|---|---|
+| `test1.png` (red circle, green square, blue triangle, "BLUE CRANE 47") | text read verbatim; shapes, colours and order right, in English and Russian; control with zero vectors instead of the image → invented answers |
+| `test2.png`, same size, "GREEN FOX 12" | read correctly from scratch (the fingerprinted cache key works) |
+| invoice, 60 lines in a 15 px font, lines 21–30: code / quantity / price | normal (1047 image tokens, prompt 38.6 s): 7/10, 9/10, 8/10 · **`-doc` (2204 tokens, prompt 83.8 s, 116 s total): 10/10, 10/10, 10/10** |
+
+Caveats: there is no numeric reference (KL vs transformers) for prompts with images yet — the text part is checked
+below, the image part only by answers with known ground truth. Peak VRAM with a `-doc` image is ~7.1 GiB — very little
+headroom on an 8 GB card with a desktop running.
+
 ## Correctness
 
 **Against the reference** (`tests/ref_full.py` + `tests/eng_vs_ref.py`): transformers `NemotronHForCausalLM` in
@@ -154,7 +187,7 @@ export NS_ORIG=/data/nemotron-super-nvfp4 NS_DIR=/fast/nemsuper   # NS_DIR: fast
 python repack.py                            # experts.bin + nonexpert.safetensors + tok/  (~2.5 min)
 python check_repack.py                      # 200 experts vs the original, byte-for-byte
 python repack_T.py                          # re-layout down for the zero skip (~2 min, in place; --back undoes it)
-cd "$NS_DIR" && cp /path/to/repo/*.py .     # the server is started from NS_DIR
+cd "$NS_DIR" && cp /path/to/repo/*.py . && cp -r /path/to/repo/vision .   # the server is started from NS_DIR
 NS_RAM_GB=14 NS_PF=4 NS_PROMPT_CACHE_T=0 TRITON_CACHE_AUTOTUNING=1 NS_PORT=9809 python -u nem_super_server.py
 curl localhost:9809/v1/models
 ```
@@ -162,7 +195,8 @@ curl localhost:9809/v1/models
 Environment: `NS_DIR` (engine files), `NS_ORIG` (original checkpoint, used by the repack/check scripts and the
 reference), `NS_RAM_GB` (RAM expert cache), `NS_PF` (prefetch), `NS_PAIR_T` (prompt length for the pairs
 kernel), `NS_PROMPT_CACHE_T` (prompt experts into the RAM cache up to this length; 0 = never),
-`NS_PORT`, `NS_MAX_SEQ`, `NS_MODEL_ID`.
+`NS_PORT`, `NS_MAX_SEQ`, `NS_MODEL_ID`; images: `NS_VIS_DEVICE` (`cuda` | `cpu`), `NS_IMG_MAX_PATCHES` (4096),
+`NS_IMG_DOC_PATCHES` (13312).
 
 Versions used: torch 2.11.0+cu128, triton 3.6.0, transformers 5.9.0, kernels 0.12.3, CUDA driver 595.71.
 
@@ -174,9 +208,12 @@ Versions used: torch 2.11.0+cu128, triton 3.6.0, transformers 5.9.0, kernels 0.1
 | `qmoe_ns.py` | Triton kernels: experts step / pairs / zero-skip down, layout conversions |
 | `dense_q.py` | FP8 / NVFP4 GEMV kernels for the dense part (shared with our Nemotron Nano engine) |
 | `mamba_cont.py` | multi-token continuation of the Mamba state over a filled cache, cache snapshots, FA2 |
-| `nem_super_server.py` | OpenAI-compatible chat server |
+| `nem_super_server.py` | OpenAI-compatible chat server (text + images) |
+| `vision/vis.py` | vision tower + projector: weight loading, processor, streaming the tower to the GPU |
+| `vision/nvl/` | NVIDIA's model code, vendored unmodified (Apache-2.0) |
 | `repack.py`, `check_repack.py`, `repack_T.py` | build and verify the engine files |
 | `tests/` | the measurements behind the numbers above (reference, kernels, determinism, profiles) |
+| `tests/vision/` | vision checks: tower alone, image in the engine with a zero-vector control, the server API, the invoice test with its ground truth |
 
 ## License
 

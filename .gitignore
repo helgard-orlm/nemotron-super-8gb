@@ -3,3 +3,4 @@ __pycache__/
 *.log
 *.json
 !tests/*.py
+!tests/vision/*.json
